@@ -80,6 +80,9 @@ int current_domain_id(void);
 
 #endif /* !__ASSEMBLY__ */
 
+#define PRINTK_ERR(fmt, args...) gdprintk(XENLOG_ERR, "dom%d: %s: " fmt,    \
+			current_domain_id(), __func__, ##args)
+
 #define __STR(...) #__VA_ARGS__
 #define STR(...) __STR(__VA_ARGS__)
 

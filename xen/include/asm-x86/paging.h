@@ -132,6 +132,16 @@ struct paging_mode {
                                             unsigned long *gl1mfn);
     void          (*guest_get_eff_l1e     )(struct vcpu *v, unsigned long va,
                                             void *eff_l1e);
+    unsigned long (*map_page_to_domain_user)(struct vcpu *v,
+    	    				    struct domain *domain,
+    	    				    unsigned long gfn,
+    	    				    unsigned long vaddr,
+    	    				    unsigned long flags,
+    	    				    unsigned long cr3);
+    unsigned long (*unmap_page_from_domain_user)(struct vcpu *v,
+    	    				    struct domain *domain,
+    	    				    unsigned long gfn,
+    	    				    unsigned long cr3);
     unsigned int guest_levels;
 
     /* paging support extension */
@@ -284,6 +294,41 @@ static inline unsigned long paging_ga_to_gfn_cr3(struct vcpu *v,
     return paging_get_hostmode(v)->p2m_ga_to_gfn(v, p2m, cr3, ga, pfec,
         page_order);
 }
+
+
+static inline unsigned long paging_map_page_to_domain_user(struct vcpu *v,
+				struct domain *domain, unsigned long gfn,
+				unsigned long vaddr, unsigned long flags,
+				unsigned long cr3)
+{
+    if ( paging_get_hostmode(v)->map_page_to_domain_user )
+    {	
+        return paging_get_hostmode(v)->map_page_to_domain_user(v, domain, gfn,
+    	    					vaddr, flags, cr3);
+    }
+    else
+    {
+    	PRINTK_ERR("Error: unsupported paging mode.\n");
+    	return 0;
+    }	    
+}
+
+static inline unsigned long paging_unmap_page_from_domain_user(struct vcpu *v,
+				struct domain *domain, unsigned long gfn,
+				unsigned long cr3)
+{
+    if ( paging_get_hostmode(v)->unmap_page_from_domain_user )
+    {	
+        return paging_get_hostmode(v)->unmap_page_from_domain_user(v,
+                                             domain, gfn, cr3);
+    }
+    else
+    {
+    	PRINTK_ERR("Error: unsupported paging mode.\n");
+    	return INVALID_GFN;
+    }
+}
+
 
 /* Update all the things that are derived from the guest's CR3.
  * Called when the guest changes CR3; the caller can then use v->arch.cr3

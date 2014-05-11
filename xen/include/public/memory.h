@@ -397,6 +397,60 @@ struct xen_mem_sharing_op {
 typedef struct xen_mem_sharing_op xen_mem_sharing_op_t;
 DEFINE_XEN_GUEST_HANDLE(xen_mem_sharing_op_t);
 
+/*
+ * Copies to/from user memory of a domain.
+ * Returns error if not permitted by domain domid.
+ * arg == addr of xen_copy_domain_user_t.
+ */
+#define XENMEM_copy_from_domain_user       23
+#define XENMEM_copy_to_domain_user         24
+struct xen_copy_domain_user {    
+    uint64_t from;
+    uint64_t to;
+    uint64_t n;
+    uint64_t grant;
+    domid_t domid;
+    uint16_t flags;    
+};
+typedef struct xen_copy_domain_user xen_copy_domain_user_t;
+DEFINE_XEN_GUEST_HANDLE(xen_copy_domain_user_t);
+
+/*
+ * Maps the gfn from the current domain
+ * to the user vaddr in the domid domain.
+ * @flags is the guest page table permissions.
+ * Return value:
+ * if successful, returns the
+ * gfn in the dst VM corresponding to the mapping.
+ * Returns 0 on error.
+ * Returns error if not permitted by domain domid.
+ * arg == addr of struct xen_map_page_to_domain.
+ */
+#define XENMEM_map_page_to_domain_user    25
+struct xen_map_page_to_domain_user {    
+    uint64_t gfn;
+    uint64_t vaddr;
+    uint64_t flags;
+    uint64_t grant;
+    domid_t domid;        
+};
+typedef struct xen_map_page_to_domain_user xen_map_page_to_domain_user_t;
+DEFINE_XEN_GUEST_HANDLE(xen_map_page_to_domain_user_t);
+
+/*
+ * Unmaps a page from domid domain.
+ * Returns error if we did not map the page.
+ * arg = addr of xen_unmap_page_from_domain_user_t.
+ */
+#define XENMEM_unmap_page_from_domain_user    26
+struct xen_unmap_page_from_domain_user {    
+    uint64_t gfn;
+    uint64_t grant;
+    domid_t domid;        
+};
+typedef struct xen_unmap_page_from_domain_user xen_unmap_page_from_domain_user_t;
+DEFINE_XEN_GUEST_HANDLE(xen_unmap_page_from_domain_user_t);
+
 #endif /* defined(__XEN__) || defined(__XEN_TOOLS__) */
 
 #endif /* __XEN_PUBLIC_MEMORY_H__ */

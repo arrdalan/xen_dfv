@@ -312,6 +312,8 @@ typedef uint16_t grant_status_t;
 #endif /* __XEN_INTERFACE_VERSION__ */
 /* ` } */
 
+#define GNTTABOP_setup_dfv_table      12
+
 /*
  * Handle to track a mapping created via a grant reference.
  */
@@ -573,6 +575,22 @@ typedef struct gnttab_swap_grant_ref gnttab_swap_grant_ref_t;
 DEFINE_XEN_GUEST_HANDLE(gnttab_swap_grant_ref_t);
 
 #endif /* __XEN_INTERFACE_VERSION__ */
+
+/* FIXME: can't we just use GNTTABOP_setup_table instead? */
+/*
+ * GNTTABOP_setup_dfv_table: Sets up the dfv grant table for the
+ * calling (current) domain.
+ * 
+ * @gfn: start address of (contiguous) page(s) allocated for the dfv
+ *	grant_table.
+ * @nr_frames: number of dfv grant-table pages.
+ */
+struct gnttab_setup_dfv_table {    
+    uint64_t gfn;
+    uint32_t nr_frames;  
+};
+typedef struct gnttab_setup_dfv_table gnttab_setup_dfv_table_t;
+DEFINE_XEN_GUEST_HANDLE(gnttab_setup_dfv_table_t);
 
 /*
  * Bitfield values for gnttab_map_grant_ref.flags.

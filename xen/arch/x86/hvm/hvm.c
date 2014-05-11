@@ -35,6 +35,7 @@
 #include <xen/paging.h>
 #include <xen/cpu.h>
 #include <xen/wait.h>
+#include <xen/pci.h>
 #include <asm/shadow.h>
 #include <asm/hap.h>
 #include <asm/current.h>
@@ -2463,6 +2464,247 @@ static enum hvm_copy_result __hvm_copy(
     return HVMCOPY_okay;
 }
 
+#define HVMCOPY_dst_phys   (0u<<3)
+#define HVMCOPY_dst_virt   (1u<<3)
+#define HVMCOPY_src_phys   (0u<<4)
+#define HVMCOPY_src_virt   (1u<<4)
+
+enum hvm_copy_result __hvm_copy_between_guests(struct domain *dst_domain,
+    struct domain *src_domain, paddr_t dst_addr, paddr_t src_addr, int size,
+    unsigned int flags, uint32_t pfec, unsigned long cr3,
+    unsigned long *success)
+{
+    struct vcpu *curr = current;
+    unsigned long src_gfn, dst_gfn;
+    struct page_info *src_page, *dst_page;
+    p2m_type_t src_p2mt, dst_p2mt;
+    char *src_p, *dst_p;
+    int count, tmp_count, todo = size;
+    unsigned long src_mfn, dst_mfn;
+    //void __iomem *dst_p2;
+    unsigned long src_p3, dst_p3;
+        
+    *success = 0;
+
+
+    while ( todo > 0 )
+    {
+        tmp_count = min_t(int, PAGE_SIZE - (src_addr & ~PAGE_MASK), todo);
+        count = min_t(int, PAGE_SIZE - (dst_addr & ~PAGE_MASK), tmp_count);
+        
+        if ( flags & HVMCOPY_src_virt )
+        {
+            if ( src_domain == curr->domain )
+            {
+            	src_gfn = paging_gva_to_gfn(curr, src_addr, &pfec);
+            }
+            else
+            {
+               	src_gfn = paging_ga_to_gfn_cr3(src_domain->vcpu[0], cr3,
+             					src_addr, &pfec, NULL);
+            }
+            
+            if ( src_gfn == INVALID_GFN )
+            {
+                if ( pfec == PFEC_page_paged )
+                    return HVMCOPY_gfn_paged_out;
+                if ( pfec == PFEC_page_shared )
+                    return HVMCOPY_gfn_shared;
+                return HVMCOPY_bad_gva_to_gfn;
+            }
+        }
+        else
+        {
+            src_gfn = src_addr >> PAGE_SHIFT;            
+        }
+        
+        if ( flags & HVMCOPY_dst_virt )
+        {
+            if ( dst_domain == curr->domain )
+            {
+            	dst_gfn = paging_gva_to_gfn(curr, dst_addr, &pfec);
+            }
+            else
+            {
+               	dst_gfn = paging_ga_to_gfn_cr3(dst_domain->vcpu[0], cr3,
+        					dst_addr, &pfec, NULL);
+            }
+            
+            if ( dst_gfn == INVALID_GFN )
+            {
+                if ( pfec == PFEC_page_paged )
+                    return HVMCOPY_gfn_paged_out;
+                if ( pfec == PFEC_page_shared )
+                    return HVMCOPY_gfn_shared;
+                return HVMCOPY_bad_gva_to_gfn;
+            }
+        }
+        else
+        {
+            dst_gfn = dst_addr >> PAGE_SHIFT;
+        }
+        
+        src_page = get_page_from_gfn(src_domain, src_gfn,
+						&src_p2mt, P2M_UNSHARE);
+        
+        if ( p2m_is_paging(src_p2mt) )
+        {
+            if ( src_page )
+                put_page(src_page);
+            p2m_mem_paging_populate(src_domain, src_gfn);
+            return HVMCOPY_gfn_paged_out;
+        }
+        if ( p2m_is_shared(src_p2mt) )
+        {
+            if ( src_page )
+                put_page(src_page);
+            return HVMCOPY_gfn_shared;
+        }
+        if ( p2m_is_grant(src_p2mt) )
+        {
+            if ( src_page )
+                put_page(src_page);
+            return HVMCOPY_unhandleable;
+        }
+        dst_page = get_page_from_gfn(dst_domain, dst_gfn,
+						&dst_p2mt, P2M_UNSHARE);
+        
+        if ( p2m_is_paging(dst_p2mt) )
+        {
+            if ( dst_page )
+                put_page(dst_page);
+            p2m_mem_paging_populate(dst_domain, dst_gfn);
+            return HVMCOPY_gfn_paged_out;
+        }
+        if ( p2m_is_shared(dst_p2mt) )
+        {
+            if ( dst_page )
+                put_page(dst_page);
+            return HVMCOPY_gfn_shared;
+        }
+        if ( p2m_is_grant(dst_p2mt) )
+        {
+            if ( dst_page )
+                put_page(dst_page);
+            return HVMCOPY_unhandleable;
+        }
+        
+        if (src_page && dst_page)  /* normall ram to ram copy. */
+        {
+            src_p = (char *)__map_domain_page(src_page) + (src_addr & ~PAGE_MASK);
+            dst_p = (char *)__map_domain_page(dst_page) + (dst_addr & ~PAGE_MASK);
+        
+	    if ( dst_p2mt == p2m_ram_ro )
+	    {
+	        static unsigned long lastpage;
+	        if ( xchg(&lastpage, dst_gfn) != dst_gfn )
+                {
+	            gdprintk(XENLOG_DEBUG, "domain %d attempted write"
+	                 " to read-only memory page of domain %d. gfn=%#lx,"
+	    	         " mfn=%#lx\n", src_domain->domain_id,
+	    	         dst_domain->domain_id, dst_gfn,
+	    	         page_to_mfn(dst_page));
+	        }
+	    }
+	    else
+	    {
+	        memcpy(dst_p, src_p, count);
+	        paging_mark_dirty(dst_domain, page_to_mfn(dst_page));	    
+	    }
+	
+	    unmap_domain_page(src_p);
+	    unmap_domain_page(dst_p);
+	
+	    put_page(src_page);
+	    put_page(dst_page);
+        
+        }
+        else /* MMIO src or dst */
+        {
+            if ( src_page )
+            {
+        	src_p3 = (unsigned long)__map_domain_page(src_page) +
+        					(src_addr & ~PAGE_MASK);
+            }
+            else
+            {
+                src_mfn = get_mmio_p2m_entry(src_domain, src_gfn);
+                
+                if ( !src_mfn )
+                {
+                    PRINTK_ERR("Error: get_mmio_p2m_entry "
+                                             "from src_gfn failed.\n");    	        
+                    return HVMCOPY_bad_gfn_to_mfn;        
+                }
+
+                src_p3 = (unsigned long) mfn_to_virt(src_mfn);
+                if ( map_pages_to_xen(src_p3,
+        			src_mfn, 1, PAGE_HYPERVISOR_NOCACHE) )
+                {
+        	    PRINTK_ERR("Error: could not map src page to Xen\n");
+        	    return HVMCOPY_bad_gfn_to_mfn; 
+        	}
+        	
+        	src_p3 += (src_addr & ~PAGE_MASK);
+            }
+        	
+            if ( dst_page )
+            {
+        	dst_p3 = (unsigned long)__map_domain_page(dst_page) +
+        					(dst_addr & ~PAGE_MASK);
+            }
+            else
+            {
+        	dst_mfn = get_mmio_p2m_entry(dst_domain, dst_gfn);
+                
+                if ( !dst_mfn )
+                {
+                    PRINTK_ERR("Error: get_mmio_p2m_entry from "
+                                                "dst_gfn failed.\n");    	        
+                    return HVMCOPY_bad_gfn_to_mfn;        
+                }
+        
+                dst_p3 = (unsigned long) mfn_to_virt(dst_mfn);
+                if ( map_pages_to_xen(dst_p3,
+        			dst_mfn, 1, PAGE_HYPERVISOR_NOCACHE) )
+                {
+        	    PRINTK_ERR("Error: could not map page to Xen\n");
+        	    return HVMCOPY_bad_gfn_to_mfn; 
+        	}        	
+        	
+        	dst_p3 += (dst_addr & ~PAGE_MASK);        	
+            }        	    
+        	    
+	    memcpy((void *) dst_p3, (void *) src_p3, count);
+	        	
+        }
+
+        
+        src_addr += count;
+        dst_addr  += count;
+        todo -= count;
+        *success += count;
+    }
+
+    return HVMCOPY_okay;
+}
+
+unsigned long __hvm_map_page_to_domain_user(struct domain *domain,
+		unsigned long gfn, unsigned long vaddr, unsigned long flags,
+		unsigned long cr3)
+{
+    return paging_map_page_to_domain_user(domain->vcpu[0], domain, gfn, vaddr,
+    	    						flags, cr3);
+}
+
+unsigned long __hvm_unmap_page_from_domain_user(struct domain *domain,
+		unsigned long gfn, unsigned long cr3)
+{
+    return paging_unmap_page_from_domain_user(domain->vcpu[0], domain,
+    	    							gfn, cr3);
+}
+
+
 static enum hvm_copy_result __hvm_clear(paddr_t addr, int size)
 {
     struct vcpu *curr = current;
@@ -2615,6 +2857,16 @@ enum hvm_copy_result hvm_copy_from_guest_virt_nofault(
                       PFEC_page_present | pfec);
 }
 
+enum hvm_copy_result hvm_copy_between_guests_nofault(
+    struct domain *dst_domain, struct domain *src_domain,
+    unsigned long dst_vaddr, unsigned long src_vaddr, int size, uint32_t pfec,
+    unsigned int flags, unsigned long cr3, unsigned long *success)
+{
+    return __hvm_copy_between_guests(dst_domain, src_domain, dst_vaddr,
+    	    	      src_vaddr, size, HVMCOPY_no_fault | flags,
+                      PFEC_page_present | pfec, cr3, success);
+}
+
 enum hvm_copy_result hvm_fetch_from_guest_virt_nofault(
     void *buf, unsigned long vaddr, int size, uint32_t pfec)
 {
@@ -2675,6 +2927,32 @@ unsigned long copy_from_user_hvm(void *to, const void *from, unsigned len)
 
     rc = hvm_copy_from_guest_virt_nofault(to, (unsigned long)from, len, 0);
     return rc ? len : 0; /* fake a copy_from_user() return code */
+}
+
+/* Returns the number of successfully copied bytes. */
+unsigned long copy_between_guests_hvm(struct domain *dst_domain,
+    struct domain *src_domain, const void *dst_addr, const void *src_addr, 
+    int len, unsigned int flags, unsigned long grant)
+{
+    int rc;
+    unsigned long ret, success, cr3;
+
+    cr3 = grant;
+
+    rc = hvm_copy_between_guests_nofault(dst_domain, src_domain,
+    	    		(unsigned long) dst_addr, (unsigned long) src_addr,
+    	    		len, 0, flags, cr3, &success);
+    
+    ret = success;
+    if ( len < success ) /* should not happen */
+    {
+        PRINTK_ERR("%s: Error: success > len.\n", __func__);
+        ret = len;
+    }
+    if (success == 0)
+    	PRINTK_ERR("Error: copy failed.\n");
+    
+    return ret;
 }
 
 void hvm_cpuid(unsigned int input, unsigned int *eax, unsigned int *ebx,
@@ -3046,6 +3324,7 @@ static int grant_table_op_is_allowed(unsigned int cmd)
     case GNTTABOP_map_grant_ref:
     case GNTTABOP_unmap_grant_ref:
     case GNTTABOP_swap_grant_ref:
+    case GNTTABOP_setup_dfv_table:
         return 1;
     default:
         /* all other commands need auditing */
@@ -3147,6 +3426,7 @@ static long hvm_grant_table_op_compat32(unsigned int cmd,
                                         XEN_GUEST_HANDLE(void) uop,
                                         unsigned int count)
 {
+    
     if ( !grant_table_op_is_allowed(cmd) )
         return -ENOSYS;
     return compat_grant_table_op(cmd, uop, count);

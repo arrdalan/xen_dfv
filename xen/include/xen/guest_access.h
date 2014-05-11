@@ -26,5 +26,14 @@
 
 #define __clear_guest(hnd, nr)                          \
     __clear_guest_offset(hnd, 0, nr)
+    
+#define copy_between_guests(dst_dom, src_dom, dst, src, len, flags, grant)  \
+    __copy_between_guests(dst_dom, src_dom, dst, src, len, flags, grant)
+    
+#define map_page_to_domain_user(dom, gfn, addr, flags, grant)               \
+    __map_page_to_domain_user(dom, gfn, addr, flags, grant)
+    
+#define unmap_page_from_domain_user(dom, gfn, grant)                        \
+    __unmap_page_from_domain_user(dom, gfn, grant)
 
 #endif /* __XEN_GUEST_ACCESS_H__ */

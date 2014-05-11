@@ -221,6 +221,10 @@ struct domain *domain_create(
     spin_lock_init(&d->hypercall_deadlock_mutex);
     INIT_PAGE_LIST_HEAD(&d->page_list);
     INIT_PAGE_LIST_HEAD(&d->xenpage_list);
+    d->dfv_gnttab_addr = NULL;
+    d->num_dfv_gnttab_pages = 0;
+    INIT_LIST_HEAD(&d->map_list);
+    d->last_mapped_pfn = 0;
 
     spin_lock_init(&d->node_affinity_lock);
     d->node_affinity = NODE_MASK_ALL;
@@ -535,6 +539,9 @@ void domain_shutdown(struct domain *d, u8 reason)
     struct vcpu *v;
 
     spin_lock(&d->shutdown_lock);
+
+    if (d->dfv_gnttab_addr)
+        unmap_domain_page(d->dfv_gnttab_addr);
 
     if ( d->shutdown_code == -1 )
         d->shutdown_code = reason;

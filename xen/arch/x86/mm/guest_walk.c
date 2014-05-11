@@ -233,6 +233,8 @@ guest_walk_tables(struct vcpu *v, struct p2m_domain *p2m,
     }
 
 #else /* PAE only... */
+#undef L3_PAGETABLE_ENTRIES
+#define L3_PAGETABLE_ENTRIES 4
 
     /* Get the l3e and check its flag */
     gw->l3e = ((guest_l3e_t *) top_map)[guest_l3_table_offset(va)];

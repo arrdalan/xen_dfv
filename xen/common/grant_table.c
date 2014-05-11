@@ -1363,6 +1363,186 @@ gnttab_setup_table(
     return 0;
 }
 
+enum gnttab_entry_types {
+	GNTTAB_TYPE_COPY_FROM_USER = 0,
+	GNTTAB_TYPE_COPY_TO_USER = 1,
+	GNTTAB_TYPE_MMAP = 2,
+	GNTTAB_TYPE_MUNMAP = 3,
+	/*
+	 * Don't use this one unless you know what you're doing. It's a
+	 * security threat.
+	 */
+	GNTTAB_TYPE_ALL = 4
+};
+
+struct dfv_gnttab_entry {
+	uint64_t start_addr;
+	uint64_t size;
+	uint64_t cr3;
+	uint64_t debug;
+	uint32_t next_ref;
+	domid_t domid;
+	uint16_t type;
+};
+
+#define NR_REFS_PER_PAGE (PAGE_SIZE / sizeof(struct dfv_gnttab_entry))
+#define NR_DV_GNTTAB_PAGES 1 /* Currently, we only support 1 page for the
+				dfv grant-table. */
+#define NR_DV_GNTTAB_ENTRIES  NR_REFS_PER_PAGE //* NR_DV_GNTTAB_PAGES
+
+#define IS_VALID_REF(ref) (ref < NR_DV_GNTTAB_ENTRIES && ref >= 0)
+
+/*
+static int print_dfv_gnttab_entry_ref(struct domain *domain, int ref)
+{
+    struct dfv_gnttab_entry *dfv_gnttab, *entry;
+        
+    if (!IS_VALID_REF(ref)) {
+	PRINTK_ERR("Error: invalid ref number (%d)\n", ref);
+	return -EINVAL;
+    }
+    
+    dfv_gnttab = (struct dfv_gnttab_entry *) domain->dfv_gnttab_addr;
+					
+    entry = &dfv_gnttab[ref];
+    
+    print_dfv_gnttab_entry(entry);
+    
+    return 0;
+}
+*/
+
+/*
+ * Validates whether the requesting domain (req_domain) is allowed to perform
+ * the operation defined by grant on the granting domain (gnt_domain).
+ * Returns 0 if the operations is allowed, nonzero otherwise.
+ * Also, sets the cr3 value, which is needed to perform the operation.
+ */
+int validate_dfv_grant(struct domain *req_domain, struct domain *gnt_domain,
+			unsigned long grant, unsigned long *cr3,
+			unsigned long addr, unsigned long size, int type)
+{
+    int ref, current_ref, counter = 0;
+    struct dfv_gnttab_entry *dfv_gnttab, *entry = NULL;
+    unsigned long e_addr, e_size, e_end_addr;
+    unsigned long end_addr = addr + size;
+         
+    ref = (int) grant;
+        
+    if ( !IS_VALID_REF(ref) )
+    {
+	PRINTK_ERR("Error: invalid ref (%d)\n", ref);
+	return -EINVAL;
+    }
+    
+    dfv_gnttab = (struct dfv_gnttab_entry *) gnt_domain->dfv_gnttab_addr;
+    if ( dfv_gnttab == NULL )
+    {
+    	    PRINTK_ERR("Error: dfv_gnttab for domain %d is not set up.\n",
+    	    	    				gnt_domain->domain_id);
+    	    return -EINVAL;
+    }
+
+    current_ref = ref;    
+    
+    while ( IS_VALID_REF(current_ref) && counter < NR_DV_GNTTAB_ENTRIES )
+    {    	    
+        counter++;
+    
+        entry = &dfv_gnttab[current_ref];
+        
+        e_addr = (unsigned long) entry->start_addr;
+        e_size = (unsigned long) entry->size;
+        e_end_addr = (unsigned long) (e_addr + e_size);
+        
+        if ( (entry->type == GNTTAB_TYPE_ALL) || 
+              ((addr - e_addr >= 0) && (e_end_addr - end_addr >= 0) &&
+    	       (req_domain->domain_id == entry->domid) &&
+    	       (type == (int) entry->type)) )
+        {
+            *cr3 = (unsigned long) entry->cr3;
+            
+            return 0;
+        }
+        
+        current_ref = entry->next_ref;
+    }
+    return -EPERM;
+}
+
+static long 
+gnttab_setup_dfv_table(
+    XEN_GUEST_HANDLE(gnttab_setup_dfv_table_t) uop, unsigned int count)
+{
+    struct gnttab_setup_dfv_table op;    
+    p2m_type_t p2mt;
+    void *addr;
+    struct page_info *page;
+    struct domain *d;
+    
+    /* Do we need to lock the domain? */
+    //d = gt_lock_target_domain_by_id(current->domain->domain_id);
+    //if ( IS_ERR(d) )
+    //{
+    //    PRINTK_ERR("Error: Could not lock the domain.\n");
+    //    return GNTST_general_error;
+    //}
+    d = current->domain;
+
+    if ( count != 1 )
+        return -EINVAL;
+
+    if ( unlikely(copy_from_guest(&op, uop, 1) != 0) )
+    {
+        PRINTK_ERR("Error: Fault while reading gnttab_setup_dfv_table_t\n");
+        return -EFAULT;
+    }
+    
+    /* Currently, we only support 1 page for the dfv grant-table. */
+    if ( unlikely(op.nr_frames > 1 || d->num_dfv_gnttab_pages > 0) )
+    {
+        PRINTK_ERR("Error: Xen only supports 1 dfv-grant-table frame per "
+								"domain\n");
+        return GNTST_general_error;
+    }
+    
+    page = get_page_from_gfn(d, (unsigned long) op.gfn, &p2mt, P2M_UNSHARE);
+    
+    if ( p2m_is_paging(p2mt) )
+    {
+        if ( page )
+            put_page(page);
+        return GNTST_general_error;
+    }
+    if ( p2m_is_shared(p2mt) )
+    {
+        if ( page )
+            put_page(page);
+        return GNTST_general_error;
+    }
+    if ( p2m_is_grant(p2mt) )
+    {
+        if ( page )
+            put_page(page);
+        return GNTST_general_error;
+    }
+    if ( !page )
+    {
+        return GNTST_general_error;
+    }
+    
+    addr = (void *)__map_domain_page(page);
+    
+    d->dfv_gnttab_addr = addr;
+    d->num_dfv_gnttab_pages++;
+    
+    put_page(page);
+
+    //rcu_unlock_domain(d);
+    
+    return 0;
+}
+
 static long 
 gnttab_query_size(
     XEN_GUEST_HANDLE(gnttab_query_size_t) uop, unsigned int count)
@@ -2417,6 +2597,7 @@ do_grant_table_op(
     {
         XEN_GUEST_HANDLE(gnttab_map_grant_ref_t) map =
             guest_handle_cast(uop, gnttab_map_grant_ref_t);
+        
         if ( unlikely(!guest_handle_okay(map, count)) )
             goto out;
         rc = gnttab_map_grant_ref(map, count);
@@ -2425,6 +2606,7 @@ do_grant_table_op(
             guest_handle_add_offset(map, rc);
             uop = guest_handle_cast(map, void);
         }
+    
         break;
     }
     case GNTTABOP_unmap_grant_ref:
@@ -2528,6 +2710,12 @@ do_grant_table_op(
             guest_handle_add_offset(swap, rc);
             uop = guest_handle_cast(swap, void);
         }
+        break;
+    }
+    case GNTTABOP_setup_dfv_table:
+    {
+        rc = gnttab_setup_dfv_table(
+            guest_handle_cast(uop, gnttab_setup_dfv_table_t), count);
         break;
     }
     default:

@@ -518,6 +518,8 @@ void p2m_change_type_range(struct domain *d,
 p2m_type_t p2m_change_type(struct domain *d, unsigned long gfn,
                            p2m_type_t ot, p2m_type_t nt);
 
+mfn_t get_mmio_p2m_entry(struct domain *d, unsigned long gfn);
+
 /* Set mmio addresses in the p2m table (for pass-through) */
 int set_mmio_p2m_entry(struct domain *d, unsigned long gfn, mfn_t mfn);
 int clear_mmio_p2m_entry(struct domain *d, unsigned long gfn);
@@ -650,6 +652,8 @@ static inline int p2m_gfn_check_limit(
 #else
 #define p2m_gfn_check_limit(d, g, o) 0
 #endif
+
+mfn_t get_p2m_entry(struct domain *d, unsigned long gfn);
 
 /* Directly set a p2m entry: only for use by p2m code. Does not need
  * a call to put_gfn afterwards/ */

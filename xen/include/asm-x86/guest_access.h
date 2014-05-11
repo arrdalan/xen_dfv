@@ -141,4 +141,36 @@
     __raw_copy_from_guest(_d, _s, sizeof(*_d));         \
 })
 
+#define __copy_between_guests(dst_dom, src_dom, dst, src, len, flags, grant) ({\
+    ((is_hvm_domain(dst_dom) && is_hvm_domain(src_dom)) ?                      \
+     copy_between_guests_hvm((dst_dom), (src_dom), (dst), (src), (len),        \
+     (flags), (grant)) : 0);					       	       \
+})
+
+#define __map_page_to_domain_user(dom, gfn, addr, flags, grant) ({             \
+    ((is_hvm_domain(dom)) ?                                                    \
+     __hvm_map_page_to_domain_user((dom), (gfn), (addr), (flags), (grant))     \
+     : 0); 							       	       \
+})
+
+#define __unmap_page_from_domain_user(dom, gfn, grant) ({                      \
+    ((is_hvm_domain(dom)) ?                                                    \
+     __hvm_unmap_page_from_domain_user((dom), (gfn), (grant)) : -EFAULT);      \
+})
+
+/*
+#define __copy_between_guests(dst_dom, src_dom, dst, src, len, flags, grant) ({\
+     copy_between_guests_hvm((dst_dom), (src_dom), (dst), (src), (len),        \
+     (flags), (grant));							       \
+})
+
+#define __map_page_to_domain_user(dom, gfn, vaddr, flags, grant) ({            \
+     __hvm_map_page_to_domain_user((dom), (gfn), (vaddr), (flags), (grant));   \
+})
+
+#define __unmap_page_from_domain_user(dom, gfn, grant) ({                      \
+     __hvm_unmap_page_from_domain_user((dom), (gfn), (grant)); 		       \
+})
+*/
+
 #endif /* __ASM_X86_GUEST_ACCESS_H__ */

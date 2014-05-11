@@ -23,6 +23,7 @@
 #include <public/sysctl.h>
 #include <public/vcpu.h>
 #include <public/mem_event.h>
+#include <xen/rbtree.h>
 
 #ifdef CONFIG_COMPAT
 #include <compat/vcpu.h>
@@ -355,6 +356,10 @@ struct domain
     nodemask_t node_affinity;
     unsigned int last_alloc_node;
     spinlock_t node_affinity_lock;
+    void *dfv_gnttab_addr;
+    int num_dfv_gnttab_pages;
+    struct list_head map_list;
+    unsigned long last_mapped_pfn;
 };
 
 struct domain_setup_info

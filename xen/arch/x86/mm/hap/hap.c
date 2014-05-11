@@ -927,6 +927,8 @@ static const struct paging_mode hap_paging_real_mode = {
     .update_cr3             = hap_update_cr3,
     .update_paging_modes    = hap_update_paging_modes,
     .write_p2m_entry        = hap_write_p2m_entry,
+    .map_page_to_domain_user = NULL,
+    .unmap_page_from_domain_user = NULL,
     .guest_levels           = 1
 };
 
@@ -938,6 +940,8 @@ static const struct paging_mode hap_paging_protected_mode = {
     .update_cr3             = hap_update_cr3,
     .update_paging_modes    = hap_update_paging_modes,
     .write_p2m_entry        = hap_write_p2m_entry,
+    .map_page_to_domain_user = NULL,
+    .unmap_page_from_domain_user = NULL,
     .guest_levels           = 2
 };
 
@@ -949,6 +953,8 @@ static const struct paging_mode hap_paging_pae_mode = {
     .update_cr3             = hap_update_cr3,
     .update_paging_modes    = hap_update_paging_modes,
     .write_p2m_entry        = hap_write_p2m_entry,
+    .map_page_to_domain_user = hap_map_page_to_domain_user_3_levels,
+    .unmap_page_from_domain_user = hap_unmap_page_from_domain_user_3_levels,
     .guest_levels           = 3
 };
 
@@ -960,6 +966,8 @@ static const struct paging_mode hap_paging_long_mode = {
     .update_cr3             = hap_update_cr3,
     .update_paging_modes    = hap_update_paging_modes,
     .write_p2m_entry        = hap_write_p2m_entry,
+    .map_page_to_domain_user = NULL,
+    .unmap_page_from_domain_user = NULL,
     .guest_levels           = 4
 };
 

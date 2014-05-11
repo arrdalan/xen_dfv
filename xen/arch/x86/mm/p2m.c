@@ -257,6 +257,23 @@ struct page_info *get_page_from_gfn_p2m(
     return page;
 }
 
+/* returns 0 on error. */
+mfn_t get_p2m_entry(struct domain *d, unsigned long gfn)
+{    
+    p2m_access_t a;
+    p2m_type_t ot;
+    mfn_t omfn;
+    struct p2m_domain *p2m = p2m_get_hostp2m(d);
+
+    if ( !paging_mode_translate(d) )
+        return 0; /* Not implemented. */
+
+    gfn_lock(p2m, gfn, 0);
+    omfn = p2m->get_entry(p2m, gfn, &ot, &a, 0, NULL);
+        
+    gfn_unlock(p2m, gfn, 0);
+    return omfn;
+}
 
 int set_p2m_entry(struct p2m_domain *p2m, unsigned long gfn, mfn_t mfn, 
                   unsigned int page_order, p2m_type_t p2mt, p2m_access_t p2ma)
@@ -738,7 +755,35 @@ void p2m_change_type_range(struct domain *d,
     p2m_unlock(p2m);
 }
 
+/* returns 0 on error. */
+mfn_t get_mmio_p2m_entry(struct domain *d, unsigned long gfn)
+{    
+    p2m_access_t a;
+    p2m_type_t ot;
+    mfn_t omfn;
+    struct p2m_domain *p2m = p2m_get_hostp2m(d);
 
+    if ( !paging_mode_translate(d) )
+        return 0; /* Not implemented. */
+
+    gfn_lock(p2m, gfn, 0);
+    omfn = p2m->get_entry(p2m, gfn, &ot, &a, 0, NULL);
+    if ( p2m_is_grant(ot) )
+    {
+        goto err;
+    }
+    else if ( p2m_is_ram(ot) )
+    {
+        goto err;
+    }
+    
+    gfn_unlock(p2m, gfn, 0);
+    return omfn;
+    
+err:
+    gfn_unlock(p2m, gfn, 0);
+    return (mfn_t) 0;
+}
 
 int
 set_mmio_p2m_entry(struct domain *d, unsigned long gfn, mfn_t mfn)
@@ -1598,6 +1643,7 @@ unsigned long paging_gva_to_gfn(struct vcpu *v,
 
     return hostmode->gva_to_gfn(v, hostp2m, va, pfec);
 }
+
 
 /*** Audit ***/
 

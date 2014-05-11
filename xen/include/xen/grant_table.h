@@ -166,4 +166,8 @@ nr_active_grant_frames(struct grant_table *gt)
     return num_act_frames_from_sha_frames(nr_grant_frames(gt));
 }
 
+int validate_dfv_grant(struct domain *req_domain, struct domain *gnt_domain,
+			unsigned long grant, unsigned long *cr3,
+			unsigned long addr, unsigned long size, int type);
+
 #endif /* __XEN_GRANT_TABLE_H__ */

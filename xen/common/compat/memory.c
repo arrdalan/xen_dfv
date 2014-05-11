@@ -184,6 +184,10 @@ int compat_memory_op(unsigned int cmd, XEN_GUEST_HANDLE(void) compat)
         case XENMEM_maximum_reservation:
         case XENMEM_maximum_gpfn:
         case XENMEM_maximum_ram_page:
+        case XENMEM_copy_from_domain_user:
+        case XENMEM_copy_to_domain_user:
+        case XENMEM_map_page_to_domain_user:
+        case XENMEM_unmap_page_from_domain_user:
             nat.hnd = compat;
             break;
 
@@ -305,6 +309,10 @@ int compat_memory_op(unsigned int cmd, XEN_GUEST_HANDLE(void) compat)
         case XENMEM_maximum_reservation:
         case XENMEM_maximum_gpfn:
         case XENMEM_remove_from_physmap:
+        case XENMEM_copy_from_domain_user:
+        case XENMEM_copy_to_domain_user:
+        case XENMEM_map_page_to_domain_user:
+        case XENMEM_unmap_page_from_domain_user:
             break;
 
         default:

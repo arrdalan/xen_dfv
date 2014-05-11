@@ -28,6 +28,7 @@
 #include <public/memory.h>
 #include <xsm/xsm.h>
 #include <xen/trace.h>
+#include <xen/grant_table.h>
 
 struct memop_args {
     /* INPUT */
@@ -695,6 +696,129 @@ long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE(void) arg)
 
         break;
     }
+    
+    case XENMEM_copy_from_domain_user:
+    case XENMEM_copy_to_domain_user:
+    {
+        struct xen_copy_domain_user xcdu;
+        struct domain *src_domain, *dst_domain, *other_domain;
+        unsigned long cr3, addr;
+        int ret, copy_type;
+        
+        if ( copy_from_guest(&xcdu,
+        		guest_handle_cast(arg, xen_copy_domain_user_t), 1) )
+            return 0; /* error */
+        
+        /* We don't allow copy to/from dom0 or the current domain. */
+        if ( xcdu.domid == 0 || xcdu.domid == current->domain->domain_id )
+        {
+            PRINTK_ERR("Error: Invalid domid %d forr copy\n", (int) xcdu.domid);
+            return 0;
+        }
+
+        other_domain = get_domain_by_id(xcdu.domid);
+
+        switch ( op )
+        {
+        case XENMEM_copy_from_domain_user:
+        	            	
+      	    dst_domain = current->domain;
+       	    src_domain = other_domain;
+       	    copy_type = 0;
+       	    addr = (unsigned long) xcdu.from;
+        	            	    
+       	    break;
+        	    
+        case XENMEM_copy_to_domain_user: 
+        		
+            dst_domain = other_domain;
+            src_domain = current->domain;
+            copy_type = 1;
+            addr = (unsigned long) xcdu.to;
+            
+            break;
+        }
+        
+        ret = validate_dfv_grant(current->domain, other_domain,
+        		(unsigned long) xcdu.grant, &cr3, addr,
+        		(unsigned long) xcdu.n, copy_type);
+        if ( ret )
+        {
+    	    PRINTK_ERR("Error: grant could not be validated for copy, "
+    	    					"error = %d.\n", ret);
+    	    return 0; /* error */
+        }
+        
+        rc = copy_between_guests(dst_domain, src_domain, (const void *) xcdu.to,
+       				(const void *) xcdu.from, (int) xcdu.n,
+       				(unsigned int) xcdu.flags, cr3);        				
+        	
+        break;
+    }
+    
+    case XENMEM_map_page_to_domain_user:
+    {        
+        struct xen_map_page_to_domain_user xmpu;
+        struct domain *target_domain;
+        int ret;
+        unsigned long cr3;
+                
+        if ( copy_from_guest(&xmpu, guest_handle_cast(arg,
+        				xen_map_page_to_domain_user_t), 1) )
+            return 0; /* error */
+        
+        /* We don't allow mapping page to dom0 or the current domain. */
+        if ( xmpu.domid == 0 || xmpu.domid == current->domain->domain_id )
+        {
+        	    PRINTK_ERR("Error: Invalid domid %d for mapping\n", (int) xmpu.domid);
+        	    return 0;
+        }
+        	
+        target_domain = get_domain_by_id(xmpu.domid);
+        
+        	
+        ret = validate_dfv_grant(current->domain, target_domain,
+        	(unsigned long) xmpu.grant, &cr3,
+        	(unsigned long) (xmpu.vaddr << PAGE_SHIFT), PAGE_SIZE, 2);
+        if ( ret )
+        {
+    	    PRINTK_ERR("Error: grant could not be validated for map, "
+    	    					"error = %d.\n", ret);
+    	    return 0; /* error */
+        }
+    	
+        rc = map_page_to_domain_user(target_domain,
+        	     (unsigned long) xmpu.gfn,
+        	     (unsigned long) xmpu.vaddr,
+        	     (unsigned long) xmpu.flags, cr3);
+        
+    	break;
+    }
+    
+    case XENMEM_unmap_page_from_domain_user:
+    {
+    	struct xen_unmap_page_from_domain_user xufd;
+        struct domain *target_domain;
+                
+        if ( copy_from_guest(&xufd, guest_handle_cast(arg,
+ 				xen_unmap_page_from_domain_user_t), 1) )
+            return -EFAULT;
+        
+        /* We don't allow unmapping page from dom0 or the current domain. */
+        if ( xufd.domid == 0 || xufd.domid == current->domain->domain_id )
+        {
+            PRINTK_ERR("Error4: Invalid domid %d\n", (int) xufd.domid);
+            return -EFAULT;
+        }
+        	
+        target_domain = get_domain_by_id(xufd.domid);
+        
+        rc = unmap_page_from_domain_user(target_domain, xufd.gfn,
+        			     (unsigned long) xufd.grant);
+        
+        break;
+    }
+    
 
     default:
         rc = arch_memory_op(op, arg);
